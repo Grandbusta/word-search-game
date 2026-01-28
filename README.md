@@ -1,6 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Neon Word Search 🔍
 
-## Getting Started
+A futuristic, cyberpunk-themed word search puzzle game built with Next.js and Tailwind CSS. Immerse yourself in a glowing neon world as you race against the clock to find hidden words across multiple difficulty levels.
+
+![Neon Word Search](public/window.svg)
+
+## 🎮 Game Overview
+
+Neon Word Search takes the classic puzzle experience and upgrades it with a sleek, modern aesthetic and interactive gameplay features. 
+
+### Key Features
+- **Progressive Difficulty**: Start small and work your way up to complex grids.
+- **Dynamic Timer**: Race against the clock with challenging time limits for each level.
+- **Interactive Audio**: Satisfying sound effects for every action (hover, select, win, lose).
+- **Mobile Optimized**: Fully responsive layout with touch-friendly controls.
+- **Vast Vocabulary**: Over 19 unique categories including Space, Technology, Emotions, and more.
+
+## 📜 Rules of Engagement
+
+1.  **Objective**: Find all the hidden words listed in the sidebar before the timer runs out.
+2.  **Selection**: 
+    - Words can be placed **Horizontally**, **Vertically**, or **Diagonally**.
+    - Click (or touch) and drag to select a word.
+3.  **Mistakes**: 
+    - Selecting a wrong word or a duplicate word will deduct time and show an error.
+4.  **Game Over**: If the timer reaches 00:00, the mission fails. You must retry the level.
+
+## 🏆 Levels & Rewards
+
+The game scales in difficulty as you prove your skills:
+
+| Level | Grid Size | Words to Find | Time Limit | Reward |
+|-------|-----------|---------------|------------|--------|
+| **1** | 10x10     | 5             | 60s        | +50 pts |
+| **2** | 12x12     | 10            | 120s       | +50 pts |
+| **3+**| 15x15     | 15            | 180s       | +50 pts |
+
+*   **Points**: Earn points for every letter in a found word (e.g., "NEON" = 4 points).
+*   **Victory**: Completing a level unlocks the next challenge.
+
+## 🚀 Getting Started
 
 First, run the development server:
 
@@ -8,29 +46,21 @@ First, run the development server:
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to start the mission.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Built With
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Framework**: Next.js 15 (App Router)
+- **Styling**: Tailwind CSS
+- **Logic**: TypeScript
+- **Audio**: Web Audio API (No external assets required)
 
-## Learn More
+## 🤝 Contributing
 
-To learn more about Next.js, take a look at the following resources:
+Feel free to fork the repository and submit pull requests. New word categories and features are always welcome!
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+*System Status: Online. Ready for player input.*
