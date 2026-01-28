@@ -2,7 +2,7 @@
 
 A futuristic, cyberpunk-themed word search puzzle game built with Next.js and Tailwind CSS. Immerse yourself in a glowing neon world as you race against the clock to find hidden words across multiple difficulty levels.
 
-![Neon Word Search](public/window.svg)
+![Neon Word Search](public/preview.png)
 
 ## 🎮 Game Overview
 
