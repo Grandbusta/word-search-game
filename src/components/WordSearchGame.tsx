@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { WordSearchGenerator, GridState, WordLocation, Point } from '@/lib/wordSearch';
+import { WordSearchGenerator, GridState, Point } from '@/lib/wordSearch';
 import { getRandomWords } from '@/lib/wordData';
 import { sounds } from '@/lib/sounds';
 
@@ -87,7 +87,12 @@ export default function WordSearchGame() {
   }, [timer, gameOver, showIntro, popup]);
 
   useEffect(() => {
-    startNewGame();
+    // Wrap in setTimeout to avoid "synchronous setState in effect" warning/error
+    // This pushes the state updates to the next tick
+    const timer = setTimeout(() => {
+      startNewGame();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [startNewGame]);
 
   const handleMouseDown = (row: number, col: number) => {
