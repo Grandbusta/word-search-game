@@ -5,6 +5,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { WordSearchGenerator, GridState, WordLocation, Point } from '@/lib/wordSearch';
 import { getRandomWords } from '@/lib/wordData';
 import { sounds } from '@/lib/sounds';
+import { useComputerOpponent } from '@/hooks/useComputerOpponent';
 
 export default function WordSearchGame() {
   const [gameState, setGameState] = useState<GridState | null>(null);
@@ -20,6 +21,18 @@ export default function WordSearchGame() {
   const [level, setLevel] = useState(1);
   const [timer, setTimer] = useState(0);
   const [gameOver, setGameOver] = useState(false);
+
+  // Game Mode State
+  const [gameMode, setGameMode] = useState<'solo' | 'versus' | null>(null); // null = mode selection
+  
+  // Turn-Based State
+  const [currentTurn, setCurrentTurn] = useState<'player' | 'cpu'>('player');
+  const [turnTimer, setTurnTimer] = useState(30);
+
+  // CPU State (for versus mode)
+  const [cpuFoundWords, setCpuFoundWords] = useState<string[]>([]);
+  const [cpuScore, setCpuScore] = useState(0);
+  const [cpuWordLocations, setCpuWordLocations] = useState<WordLocation[]>([]);
 
   // Refs for calculating line positions
   const gridRef = useRef<HTMLDivElement>(null);
@@ -54,6 +67,14 @@ export default function WordSearchGame() {
     setPopup(null);
     setTimer(timeLimit);
     setGameOver(false);
+
+    // Reset CPU state for versus mode
+    // Reset CPU state for versus mode
+    setCpuFoundWords([]);
+    setCpuScore(0);
+    setCpuWordLocations([]);
+    setCurrentTurn('player');
+    setTurnTimer(30);
   }, [level]);
 
   useEffect(() => {
@@ -62,7 +83,13 @@ export default function WordSearchGame() {
         setTimer((prev) => {
           if (prev <= 1) {
              setGameOver(true);
-             setPopup({ word: "Time's Up!", type: 'error' });
+             if (gameMode === 'versus') {
+               if (score > cpuScore) setPopup({ word: "Victory!", type: 'success' });
+               else if (cpuScore > score) setPopup({ word: "Defeat!", type: 'error' });
+               else setPopup({ word: "Draw!", type: 'error' });
+             } else {
+               setPopup({ word: "Time's Up!", type: 'error' });
+             }
              sounds.playError();
              return 0;
           }
@@ -76,11 +103,87 @@ export default function WordSearchGame() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [timer, gameOver, showIntro, popup]);
+  }, [timer, gameOver, showIntro, popup, gameMode, score, cpuScore]);
+
+  // Turn Timer (Versus Mode)
+  useEffect(() => {
+    if (gameMode !== 'versus' || gameOver || showIntro || popup?.type === 'level_complete') return;
+
+    const interval = setInterval(() => {
+      setTurnTimer(prev => {
+        if (prev <= 1) {
+          // Turn expired! Switch turn and give penalty points
+          const penaltyPoints = 10;
+          if (currentTurn === 'player') {
+             setCpuScore(s => s + penaltyPoints);
+             setPopup({ word: "Turn Missed! CPU +10", type: 'error' });
+             setCurrentTurn('cpu');
+          } else {
+             setScore(s => s + penaltyPoints);
+             setPopup({ word: "CPU Missed! You +10", type: 'success' });
+             setCurrentTurn('player');
+          }
+          setTimeout(() => setPopup(null), 1000);
+          return 30; // Reset to 30s
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [gameMode, gameOver, showIntro, popup, currentTurn]);
 
   useEffect(() => {
     startNewGame();
   }, [startNewGame]);
+
+  // CPU found word handler
+  const handleCpuFoundWord = useCallback((location: WordLocation) => {
+    if (gameOver) return;
+    
+    // Check if word was already found by player
+    if (foundWords.includes(location.word)) return;
+    
+    // Add to CPU's found words
+    setCpuFoundWords(prev => [...prev, location.word]);
+    setCpuScore(prev => prev + location.word.length);
+    setCpuWordLocations(prev => [...prev, location]);
+    
+    // Play a sound effect
+    sounds.playError(); // Opponent found one!
+    
+    // Check for game completion
+    const totalFound = foundWords.length + cpuFoundWords.length + 1;
+    if (totalFound >= currentWords.length) {
+      // Game Over: Highest score wins
+      const finalPlayerScore = score;
+      const finalCpuScore = cpuScore + location.word.length;
+      
+      const playerWins = finalPlayerScore > finalCpuScore;
+      const isDraw = finalPlayerScore === finalCpuScore;
+      
+      setPopup({ 
+        word: isDraw ? "Draw!" : playerWins ? "Victory!" : "Defeat!", 
+        type: playerWins ? 'success' : 'error' 
+      });
+      setGameOver(true);
+    } else {
+      // Pass turn back to player
+      setCurrentTurn('player');
+      setTurnTimer(30);
+    }
+  }, [gameOver, foundWords, cpuFoundWords, currentWords, score, cpuScore]);
+
+  // Computer opponent hook (only active in versus mode)
+  useComputerOpponent({
+    grid: gameState?.grid || null,
+    words: currentWords,
+    playerFoundWords: foundWords,
+    cpuFoundWords,
+    onCpuFoundWord: handleCpuFoundWord,
+    isCpuTurn: gameMode === 'versus' && currentTurn === 'cpu' && !gameOver,
+    gameActive: gameMode === 'versus' && !gameOver && !showIntro,
+  });
 
   const handleMouseDown = (row: number, col: number) => {
     // If game over or level complete popup is showing, don't start selection
@@ -88,6 +191,10 @@ export default function WordSearchGame() {
       return;
     }
     if (gameOver) return;
+    
+    // Prevent move if it's CPU's turn
+    if (gameMode === 'versus' && currentTurn === 'cpu') return;
+
     sounds.resume();
     setIsSelecting(true);
     setSelectionStart({ row, col });
@@ -136,10 +243,14 @@ export default function WordSearchGame() {
              setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
              sounds.playLevelComplete();
              setGameOver(true); // Stop the timer and game interactions
-          } else {
-             // Show popup
              setPopup({ word: match.word, points, type: 'success' });
              setTimeout(() => setPopup(null), 500);
+             
+             // Versus Mode: End turn after finding a word
+             if (gameMode === 'versus') {
+                setCurrentTurn('cpu');
+                setTurnTimer(30);
+             }
           }
         } else {
           // Already found
@@ -167,6 +278,10 @@ export default function WordSearchGame() {
       return;
     }
     if (gameOver) return;
+    
+    // Prevent move if it's CPU's turn
+    if (gameMode === 'versus' && currentTurn === 'cpu') return;
+
     sounds.resume();
     // Prevent default to stop scrolling while playing
     // e.preventDefault(); // React synthetic events might complain, handled via CSS touch-action usually
@@ -228,14 +343,14 @@ export default function WordSearchGame() {
       // Add touch end to container to catch releases outside grid
       onTouchEnd={handleTouchEnd}
     >
-      {/* Intro / How to Play Modal */}
+      {/* Intro / Mode Selection Modal */}
       {showIntro && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-900 border-2 border-cyan-500 shadow-[0_0_50px_rgba(6,182,212,0.3)] p-6 md:p-8 rounded-2xl max-w-lg w-full text-center relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent"></div>
             
             <h2 className="text-3xl md:text-4xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 uppercase tracking-widest drop-shadow-sm">
-              How to Play
+              Select Mode
             </h2>
             
             <div className="space-y-4 md:space-y-6 text-base md:text-lg text-slate-300 mb-8 text-left">
@@ -253,15 +368,30 @@ export default function WordSearchGame() {
               </div>
             </div>
 
-            <button 
-              onClick={() => {
-                setShowIntro(false);
-                sounds.resume();
-              }}
-              className="w-full py-3 md:py-4 bg-gradient-to-r from-cyan-600 to-purple-600 text-white text-lg md:text-xl font-bold rounded-xl hover:from-cyan-500 hover:to-purple-500 transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-[1.02]"
-            >
-              Start Mission
-            </button>
+            {/* Game Mode Buttons */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button 
+                onClick={() => {
+                  setGameMode('solo');
+                  setShowIntro(false);
+                  sounds.resume();
+                }}
+                className="w-full py-4 bg-cyan-600 text-white text-lg font-bold rounded-xl hover:bg-cyan-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
+              >
+                Solo Mission
+              </button>
+              
+              <button 
+                onClick={() => {
+                  setGameMode('versus');
+                  setShowIntro(false);
+                  sounds.resume();
+                }}
+                className="w-full py-4 bg-red-600 text-white text-lg font-bold rounded-xl hover:bg-red-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
+              >
+                Multiplayer VS CPU
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -299,20 +429,36 @@ export default function WordSearchGame() {
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
           style={{ zIndex: 10 }}
         >
-          {/* Found Words */}
+          {/* Found Words (Player) */}
           {foundWords.map(word => {
             const w = gameState.words.find(w => w.word === word);
             if (!w) return null;
             const coords = getLineCoords(w.start, w.end);
             return (
               <line 
-                key={word}
+                key={`player-${word}`}
                 x1={coords.x1} y1={coords.y1}
                 x2={coords.x2} y2={coords.y2}
                 stroke="rgba(216, 180, 254, 0.4)"
                 strokeWidth="24"
                 strokeLinecap="round"
                 style={{ filter: 'drop-shadow(0 0 5px rgba(192, 132, 252, 0.5))' }}
+              />
+            );
+          })}
+
+          {/* Found Words (CPU) */}
+          {cpuWordLocations.map(location => {
+            const coords = getLineCoords(location.start, location.end);
+            return (
+              <line 
+                key={`cpu-${location.word}`}
+                x1={coords.x1} y1={coords.y1}
+                x2={coords.x2} y2={coords.y2}
+                stroke="rgba(251, 146, 60, 0.4)"
+                strokeWidth="24"
+                strokeLinecap="round"
+                style={{ filter: 'drop-shadow(0 0 5px rgba(239, 68, 68, 0.5))' }}
               />
             );
           })}
@@ -384,14 +530,57 @@ export default function WordSearchGame() {
       {/* Sidebar */}
       <div className="flex flex-col gap-4 md:gap-6 w-full max-w-[95vw] lg:max-w-sm">
         <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-xl shadow-lg">
-          <div className="flex justify-between items-center mb-2">
-             <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">Score: {score}</h2>
-             <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
-               {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-             </div>
-          </div>
+          {/* Score Display - Different for solo vs versus */}
+          {gameMode === 'versus' ? (
+            <div className="mb-4">
+              <div className="flex justify-between items-center mb-3">
+                <div className={`text-center flex-1 p-2 rounded-lg transition-all ${currentTurn === 'player' ? 'bg-cyan-500/20 ring-1 ring-cyan-500' : 'opacity-60'}`}>
+                  <div className="text-sm text-cyan-400 font-bold uppercase tracking-wider mb-1">
+                    {currentTurn === 'player' ? 'YOUR TURN' : 'You'}
+                  </div>
+                  <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">{score}</div>
+                </div>
+                
+                <div className="text-xl text-slate-500 font-bold px-3">VS</div>
+                
+                <div className={`text-center flex-1 p-2 rounded-lg transition-all ${currentTurn === 'cpu' ? 'bg-red-500/20 ring-1 ring-red-500' : 'opacity-60'}`}>
+                  <div className="text-sm text-red-400 font-bold uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+                    {currentTurn === 'cpu' ? 'CPU TURN' : 'CPU'}
+                  </div>
+                  <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-500">{cpuScore}</div>
+                </div>
+              </div>
+
+              {/* Turn Timer Progress Bar */}
+              <div className="mb-2">
+                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Turn Timer</span>
+                  <span className={turnTimer <= 5 ? 'text-red-500 font-bold animate-pulse' : ''}>{turnTimer}s</span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-1000 linear ${currentTurn === 'player' ? 'bg-cyan-500' : 'bg-red-500'}`}
+                    style={{ width: `${(turnTimer / 30) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Global Timer */}
+              <div className={`text-center text-xl font-mono font-bold mt-2 ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
+                Global Time: {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-between items-center mb-2">
+               <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">Score: {score}</h2>
+               <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
+                 {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+               </div>
+            </div>
+          )}
+
           <div className="text-sm text-cyan-400 font-bold mb-4 uppercase tracking-wider">
-            Level {level} • {gridSize.rows}x{gridSize.cols} Grid
+            {gameMode === 'versus' ? 'Turn-Based Battle' : `Level ${level}`} • {gridSize.rows}x{gridSize.cols} Grid
           </div>
           <p className="text-slate-400 mb-6">Find the words listed below.</p>
           <button 
@@ -402,22 +591,31 @@ export default function WordSearchGame() {
           </button>
         </div>
 
+        {/* Word List - Shows who found each word in versus mode */}
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800">
-          {currentWords.map(word => (
-            <div 
-              key={word} 
-              className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${
-                foundWords.includes(word) 
-                  ? 'text-green-500/50 line-through decoration-green-500/50 decoration-2' 
-                  : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
-              }`}
-            >
-              <span className={`w-4 md:w-6 text-center text-xs md:text-sm ${foundWords.includes(word) ? 'opacity-100' : 'opacity-0'}`}>
-                ✓
-              </span>
-              <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
-            </div>
-          ))}
+          {currentWords.map(word => {
+            const playerFound = foundWords.includes(word);
+            const cpuFound = cpuFoundWords.includes(word);
+            const isFound = playerFound || cpuFound;
+            
+            return (
+              <div 
+                key={word} 
+                className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${
+                  playerFound 
+                    ? 'text-green-500/80 line-through decoration-green-500/50 decoration-2'
+                    : cpuFound
+                    ? 'text-red-500/60 line-through decoration-red-500/50 decoration-2'
+                    : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
+                }`}
+              >
+                <span className={`w-4 md:w-6 text-center text-xs md:text-sm ${isFound ? 'opacity-100' : 'opacity-0'}`}>
+                  {playerFound ? '✓' : cpuFound ? '✗' : ''}
+                </span>
+                <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
