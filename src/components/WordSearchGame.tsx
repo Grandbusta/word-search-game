@@ -5,6 +5,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { WordSearchGenerator, GridState, Point } from '@/lib/wordSearch';
 import { getRandomWords } from '@/lib/wordData';
 import { sounds } from '@/lib/sounds';
+import Spinner from './Spinner';
 
 export default function WordSearchGame() {
   const [gameState, setGameState] = useState<GridState | null>(null);
@@ -46,16 +47,16 @@ export default function WordSearchGame() {
     setGridSize({ rows, cols });
     const words = getRandomWords(wordCount);
     setCurrentWords(words);
-    
+
     // We need to generate with the NEW size, so we can't rely on gridSize state immediately if we just set it
     // Pass explicit rows/cols to generator
     const generator = new WordSearchGenerator(rows, cols);
     const state = generator.generate(words);
-    
+
     // Update currentWords to match what was actually placed (in case generation failed for some)
     const actuallyPlacedWords = state.words.map(w => w.word);
     setCurrentWords(actuallyPlacedWords);
-    
+
     setGameState(state);
     setFoundWords([]);
     setScore(0);
@@ -69,10 +70,10 @@ export default function WordSearchGame() {
       timerRef.current = setInterval(() => {
         setTimer((prev) => {
           if (prev <= 1) {
-             setGameOver(true);
-             setPopup({ word: "Time's Up!", type: 'error' });
-             sounds.playError();
-             return 0;
+            setGameOver(true);
+            setPopup({ word: "Time's Up!", type: 'error' });
+            sounds.playError();
+            return 0;
           }
           return prev - 1;
         });
@@ -131,8 +132,8 @@ export default function WordSearchGame() {
       // Check if it's in the list and not already found
       // We need to check exact coordinates to distinguish same words in diff places (rare but possible)
       // For now, just check word string matching and ensure it's a valid location
-      const match = gameState.words.find(w => 
-        w.word === selectedWord && 
+      const match = gameState.words.find(w =>
+        w.word === selectedWord &&
         isSameLine(w.start, w.end, selectionStart, selectionEnd)
       );
 
@@ -143,16 +144,16 @@ export default function WordSearchGame() {
           const points = match.word.length;
           setScore(score + points);
           sounds.playSuccess();
-          
+
           // Check for level completion
           if (foundWords.length + 1 === currentWords.length) {
-             setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
-             sounds.playLevelComplete();
-             setGameOver(true); // Stop the timer and game interactions
+            setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
+            sounds.playLevelComplete();
+            setGameOver(true); // Stop the timer and game interactions
           } else {
-             // Show popup
-             setPopup({ word: match.word, points, type: 'success' });
-             setTimeout(() => setPopup(null), 500);
+            // Show popup
+            setPopup({ word: match.word, points, type: 'success' });
+            setTimeout(() => setPopup(null), 500);
           }
         } else {
           // Already found
@@ -183,10 +184,10 @@ export default function WordSearchGame() {
     sounds.resume();
     // Prevent default to stop scrolling while playing
     // e.preventDefault(); // React synthetic events might complain, handled via CSS touch-action usually
-    
+
     const touch = e.touches[0];
     const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    
+
     if (element instanceof HTMLElement && element.dataset.row && element.dataset.col) {
       const row = parseInt(element.dataset.row);
       const col = parseInt(element.dataset.col);
@@ -197,11 +198,11 @@ export default function WordSearchGame() {
   const handleTouchMove = (e: React.TouchEvent) => {
     const touch = e.touches[0];
     const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    
+
     if (element instanceof HTMLElement && element.dataset.row && element.dataset.col) {
       const row = parseInt(element.dataset.row);
       const col = parseInt(element.dataset.col);
-      
+
       // Update selection if we moved to a new cell
       if (isSelecting) {
         setSelectionEnd({ row, col });
@@ -223,7 +224,7 @@ export default function WordSearchGame() {
   const getLineCoords = (start: Point, end: Point) => {
     const cellWidth = 100 / gridSize.cols;
     const cellHeight = 100 / gridSize.rows;
-    
+
     const x1 = (start.col * cellWidth) + (cellWidth / 2);
     const y1 = (start.row * cellHeight) + (cellHeight / 2);
     const x2 = (end.col * cellWidth) + (cellWidth / 2);
@@ -231,6 +232,7 @@ export default function WordSearchGame() {
 
     return { x1: `${x1}%`, y1: `${y1}%`, x2: `${x2}%`, y2: `${y2}%` };
   };
+
 
   // Accessibility: Cancel keyboard selection
   const cancelKeyboardSelection = useCallback(() => {
@@ -375,11 +377,11 @@ export default function WordSearchGame() {
     }
   }, [focusedCell, gridSize, gameOver, showIntro, isKeyboardSelecting, completeKeyboardSelection, cancelKeyboardSelection]);
 
-  if (!gameState) return <div>Loading...</div>;
+  if (!gameState) return <Spinner />;
 
   return (
-    <div 
-      className="flex flex-col-reverse lg:flex-row gap-6 md:gap-8 p-0 md:p-4 max-w-7xl mx-auto items-center lg:items-start" 
+    <div
+      className="flex flex-col-reverse lg:flex-row gap-6 md:gap-8 p-0 md:p-4 max-w-7xl mx-auto items-center lg:items-start"
       onMouseUp={handleMouseUp}
       // Add touch end to container to catch releases outside grid
       onTouchEnd={handleTouchEnd}
@@ -403,7 +405,7 @@ export default function WordSearchGame() {
             <h2 className="text-3xl md:text-4xl font-extrabold mb-6 text-transparent bg-clip-text bg-linear-to-r from-cyan-400 to-purple-500 uppercase tracking-widest drop-shadow-sm">
               How to Play
             </h2>
-            
+
             <div className="space-y-4 md:space-y-6 text-base md:text-lg text-slate-300 mb-8 text-left">
               <div className="flex items-start gap-4">
                 <div className="bg-cyan-500/20 p-2 rounded-lg text-cyan-400 font-bold shrink-0 mt-1 text-sm md:text-base">01</div>
@@ -419,7 +421,7 @@ export default function WordSearchGame() {
               </div>
             </div>
 
-            <button 
+            <button
               onClick={() => {
                 setShowIntro(false);
                 sounds.resume();
@@ -440,13 +442,14 @@ export default function WordSearchGame() {
         aria-label={`Word search grid, ${gridSize.rows} rows by ${gridSize.cols} columns. Use arrow keys to navigate, Enter or Space to start and end selection.`}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        style={{ 
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        style={{
           gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
           width: 'min(95vw, 600px)',
           height: 'min(95vw, 600px)'
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
+
       >
         {gameState.grid.map((row, r) => (
           <div 
@@ -480,7 +483,7 @@ export default function WordSearchGame() {
         ))}
 
         {/* SVG Overlay for Lines */}
-        <svg 
+        <svg
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
           style={{ zIndex: 10 }}
         >
@@ -490,7 +493,7 @@ export default function WordSearchGame() {
             if (!w) return null;
             const coords = getLineCoords(w.start, w.end);
             return (
-              <line 
+              <line
                 key={word}
                 x1={coords.x1} y1={coords.y1}
                 x2={coords.x2} y2={coords.y2}
@@ -504,7 +507,7 @@ export default function WordSearchGame() {
 
           {/* Current Selection */}
           {isSelecting && selectionStart && selectionEnd && (
-            <line 
+            <line
               x1={getLineCoords(selectionStart, selectionEnd).x1}
               y1={getLineCoords(selectionStart, selectionEnd).y1}
               x2={getLineCoords(selectionStart, selectionEnd).x2}
@@ -519,20 +522,18 @@ export default function WordSearchGame() {
 
         {/* Celebration Popup */}
         {popup && (
-          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-900/90 border-2 ${
-            popup.type === 'success' ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]' : 
+          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-900/90 border-2 ${popup.type === 'success' ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]' :
             popup.type === 'error' ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]' :
-            'border-yellow-500 shadow-[0_0_30px_rgba(234,179,8,0.5)]'
-          } p-6 rounded-xl text-center z-20 animate-bounce backdrop-blur-xl`}>
-            
-            <div className={`text-2xl font-bold mb-2 ${
-              popup.type === 'success' ? 'text-green-400' : 
+              'border-yellow-500 shadow-[0_0_30px_rgba(234,179,8,0.5)]'
+            } p-6 rounded-xl text-center z-20 animate-bounce backdrop-blur-xl`}>
+
+            <div className={`text-2xl font-bold mb-2 ${popup.type === 'success' ? 'text-green-400' :
               popup.type === 'error' ? 'text-red-400' :
-              'text-yellow-400'
-            } uppercase tracking-widest`}>
+                'text-yellow-400'
+              } uppercase tracking-widest`}>
               {popup.type === 'success' ? 'Correct!' : popup.type === 'error' ? 'Oops!' : 'Victory!'}
             </div>
-            
+
             <div className="text-xl text-white">
               {popup.type === 'success' ? (
                 <>You found <span className="font-bold text-cyan-300 drop-shadow-[0_0_5px_rgba(103,232,249,0.8)]">{popup.word}</span></>
@@ -541,7 +542,7 @@ export default function WordSearchGame() {
               ) : (
                 <div className="flex flex-col gap-2 items-center">
                   <span>{popup.word === "Time's Up!" ? "Try Again?" : `Level ${level} Complete!`}</span>
-                  <button 
+                  <button
                     onClick={() => {
                       if (popup.word === "Time's Up!") {
                         startNewGame(level); // Restart current level
@@ -551,16 +552,15 @@ export default function WordSearchGame() {
                         startNewGame(nextLevel);
                       }
                     }}
-                    className={`mt-2 py-2 px-6 font-bold rounded transition-colors ${
-                      popup.word === "Time's Up!" ? 'bg-red-500 hover:bg-red-400 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'
-                    }`}
+                    className={`mt-2 py-2 px-6 font-bold rounded transition-colors ${popup.word === "Time's Up!" ? 'bg-red-500 hover:bg-red-400 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                      }`}
                   >
                     {popup.word === "Time's Up!" ? "Retry Level" : "Next Level \u2192"}
                   </button>
                 </div>
               )}
             </div>
-            
+
             {popup.points && popup.type !== 'level_complete' && <div className="text-sm text-slate-400 mt-2">+{popup.points} points</div>}
           </div>
         )}
@@ -579,7 +579,7 @@ export default function WordSearchGame() {
             Level {level} • {gridSize.rows}x{gridSize.cols} Grid
           </div>
           <p className="text-slate-300 mb-6">Find the words listed below.</p>
-          <button 
+          <button
             onClick={() => startNewGame(level)}
             className="w-full py-3 px-6 bg-linear-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 font-bold shadow-[0_0_15px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-105"
           >
@@ -616,6 +616,7 @@ export default function WordSearchGame() {
             );
           })}
         </div>
+
       </div>
     </div>
   );
@@ -643,10 +644,10 @@ function getPointsOnLine(start: Point, end: Point): Point[] | null {
 
   // Check if valid line (horizontal, vertical, or diagonal)
   if (dRow === 0 && dCol === 0) return [{ ...start }];
-  
+
   // If not straight line
   if (dRow !== 0 && dCol !== 0 && Math.abs(end.row - start.row) !== Math.abs(end.col - start.col)) {
-    return null; 
+    return null;
   }
 
   let currRow = start.row;
@@ -657,7 +658,7 @@ function getPointsOnLine(start: Point, end: Point): Point[] | null {
     if (currRow === end.row && currCol === end.col) break;
     currRow += dRow;
     currCol += dCol;
-    
+
     // Safety break
     if (points.length > 100) break;
   }
