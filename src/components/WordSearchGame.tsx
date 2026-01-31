@@ -153,40 +153,62 @@ export default function WordSearchGame() {
 
   // CPU found word handler
   const handleCpuFoundWord = useCallback((location: WordLocation) => {
-    if (gameOver) return;
+    if (gameOver || !gameState) return;
     
-    // Check if word was already found by player
-    if (foundWords.includes(location.word)) return;
+    // STRICT VALIDATION: Prevent CPU from claiming invalid words
+    // 1. Check if word is actually in the target list
+    if (!currentWords.includes(location.word)) return;
+
+    // 2. Check if already found by ANYONE (to prevent race conditions/stealing)
+    if (foundWords.includes(location.word) || cpuFoundWords.includes(location.word)) return;
     
+    // 3. Visual Fix: Match the CPU's word to the Generator's coordinates
+    // The Solver might find a word via a weird DFS path; we want the straight-line coordinate
+    const originalPlacement = gameState.words.find(w => w.word === location.word);
+    if (!originalPlacement) return;
+
     // Add to CPU's found words
-    setCpuFoundWords(prev => [...prev, location.word]);
-    setCpuScore(prev => prev + location.word.length);
-    setCpuWordLocations(prev => [...prev, location]);
+    const newCpuFoundWords = [...cpuFoundWords, location.word];
+    setCpuFoundWords(newCpuFoundWords);
+    
+    const points = location.word.length;
+    const newCpuScore = cpuScore + points;
+    setCpuScore(newCpuScore);
+    
+    // Use the original placement coordinates for the UI line
+    setCpuWordLocations(prev => [...prev, originalPlacement]);
     
     // Play a sound effect
     sounds.playError(); // Opponent found one!
     
-    // Check for game completion
-    const totalFound = foundWords.length + cpuFoundWords.length + 1;
+    // Check for game completion - Use NEW values to avoid race condition
+    // Total found = player's current count + CPU's new count
+    const totalFound = foundWords.length + newCpuFoundWords.length;
+    
     if (totalFound >= currentWords.length) {
       // Game Over: Highest score wins
       const finalPlayerScore = score;
-      const finalCpuScore = cpuScore + location.word.length;
+      const finalCpuScore = newCpuScore;
       
       const playerWins = finalPlayerScore > finalCpuScore;
       const isDraw = finalPlayerScore === finalCpuScore;
       
       setPopup({ 
         word: isDraw ? "Draw!" : playerWins ? "Victory!" : "Defeat!", 
-        type: playerWins ? 'success' : 'error' 
+        type: 'level_complete' 
       });
       setGameOver(true);
+      
+      // Clear timers immediately
+      setTurnTimer(0);
     } else {
       // Pass turn back to player
       setCurrentTurn('player');
-      setTurnTimer(30);
+      // Dynamic Timer: Faster turns as game progresses (min 10s)
+      const nextTurnDuration = Math.max(10, 30 - totalFound * 2);
+      setTurnTimer(nextTurnDuration);
     }
-  }, [gameOver, foundWords, cpuFoundWords, currentWords, score, cpuScore]);
+  }, [gameOver, gameState, foundWords, cpuFoundWords, currentWords, score, cpuScore]);
 
   // Computer opponent hook (only active in versus mode)
   useComputerOpponent({
@@ -231,6 +253,9 @@ export default function WordSearchGame() {
       return;
     }
 
+    // Prevent move if it's CPU's turn
+    if (gameMode === 'versus' && currentTurn === 'cpu') return;
+
     if (gameOver || !isSelecting || !selectionStart || !selectionEnd || !gameState) return;
 
     // Check if the selection matches any word
@@ -252,11 +277,27 @@ export default function WordSearchGame() {
           setScore(score + points);
           sounds.playSuccess();
 
-          // Check for level completion
-          if (foundWords.length + 1 === currentWords.length) {
-             setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
+          // Check for level completion (in Versus mode, include CPU found words)
+          const totalFoundWords = gameMode === 'versus' 
+            ? foundWords.length + 1 + cpuFoundWords.length 
+            : foundWords.length + 1;
+          
+          if (totalFoundWords >= currentWords.length) {
+             // In Versus mode, determine winner
+             if (gameMode === 'versus') {
+               const finalPlayerScore = score + points;
+               const playerWins = finalPlayerScore > cpuScore;
+               const isDraw = finalPlayerScore === cpuScore;
+               setPopup({ 
+                 word: isDraw ? "Draw!" : playerWins ? "Victory!" : "Defeat!", 
+                 type: 'level_complete' 
+               });
+             } else {
+               setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
+             }
              sounds.playLevelComplete();
              setGameOver(true); // Stop the timer and game interactions
+             setTurnTimer(0); // Clear turn timer
           } else {
              // Show popup
              setPopup({ word: match.word, points, type: 'success' });
@@ -264,8 +305,10 @@ export default function WordSearchGame() {
              
              // Versus Mode: End turn after finding a word
              if (gameMode === 'versus') {
+                setTurnTimer(0); // Clear timer immediately to prevent race conditions
+                const nextTurnDuration = Math.max(10, 30 - totalFoundWords * 2);
                 setCurrentTurn('cpu');
-                setTurnTimer(30);
+                setTurnTimer(nextTurnDuration); // Reset for next turn
              }
           }
         } else {
@@ -332,6 +375,9 @@ export default function WordSearchGame() {
     if (popup?.type === 'level_complete' || (popup?.type === 'error' && popup?.word === "Time's Up!")) {
       return;
     }
+    // Prevent move if it's CPU's turn
+    if (gameMode === 'versus' && currentTurn === 'cpu') return;
+    
     handleMouseUp();
   };
 
@@ -568,7 +614,11 @@ export default function WordSearchGame() {
 
       {/* Game Board */}
       <div 
-        className="relative grid gap-0 border border-cyan-500/30 bg-black/40 backdrop-blur-md select-none shadow-[0_0_15px_rgba(6,182,212,0.15)] rounded-lg overflow-hidden touch-none mx-auto focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+        className={`relative grid gap-0 border bg-black/40 backdrop-blur-md select-none rounded-lg overflow-hidden touch-none mx-auto focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all duration-500
+          ${(gameMode === 'versus' && currentTurn === 'cpu' && !gameOver) 
+            ? 'border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.5)] ring-2 ring-red-500 animate-pulse pointer-events-none' 
+            : 'border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
+          }`}
         ref={gridRef}
         role="grid"
         aria-label={`Word search grid, ${gridSize.rows} rows by ${gridSize.cols} columns. Use arrow keys to navigate, Enter or Space to start and end selection.`}
@@ -638,16 +688,17 @@ export default function WordSearchGame() {
           })}
 
           {/* Found Words (CPU) */}
-          {cpuWordLocations.map(location => {
-            const coords = getLineCoords(location.start, location.end);
+          {cpuWordLocations.map((loc, index) => {
+            const coords = getLineCoords(loc.start, loc.end);
             return (
               <line 
-                key={`cpu-${location.word}`}
+                key={`cpu-line-${loc.word}-${index}`}
                 x1={coords.x1} y1={coords.y1}
                 x2={coords.x2} y2={coords.y2}
                 stroke="rgba(251, 146, 60, 0.4)"
                 strokeWidth="24"
                 strokeLinecap="round"
+                className="transition-opacity duration-500"
                 style={{ filter: 'drop-shadow(0 0 5px rgba(239, 68, 68, 0.5))' }}
               />
             );
@@ -689,10 +740,16 @@ export default function WordSearchGame() {
                 <span className="font-bold text-red-300">{popup.word}</span>
               ) : (
                 <div className="flex flex-col gap-2 items-center">
-                  <span>{popup.word === "Time's Up!" ? "Try Again?" : `Level ${level} Complete!`}</span>
+                  <span>
+                    {popup.word === "Time's Up!" ? "Try Again?" 
+                      : gameMode === 'versus' && popup.word === "Defeat!" ? "CPU Wins!"
+                      : gameMode === 'versus' && popup.word === "Draw!" ? "It's a Draw!"
+                      : gameMode === 'versus' && popup.word === "Victory!" ? "You Win!"
+                      : `Level ${level} Complete!`}
+                  </span>
                   <button
                     onClick={() => {
-                      if (popup.word === "Time's Up!") {
+                      if (popup.word === "Time's Up!" || popup.word === "Defeat!" || popup.word === "Draw!") {
                         startNewGame(level); // Restart current level
                       } else {
                         const nextLevel = level + 1;
@@ -700,10 +757,10 @@ export default function WordSearchGame() {
                         startNewGame(nextLevel);
                       }
                     }}
-                    className={`mt-2 py-2 px-6 font-bold rounded transition-colors ${popup.word === "Time's Up!" ? 'bg-red-500 hover:bg-red-400 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                    className={`mt-2 py-2 px-6 font-bold rounded transition-colors ${popup.word === "Time's Up!" || popup.word === "Defeat!" || popup.word === "Draw!" ? 'bg-red-500 hover:bg-red-400 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'
                       }`}
                   >
-                    {popup.word === "Time's Up!" ? "Retry Level" : "Next Level \u2192"}
+                    {popup.word === "Time's Up!" || popup.word === "Defeat!" || popup.word === "Draw!" ? "Retry Level" : "Next Level \u2192"}
                   </button>
                 </div>
               )}
@@ -716,7 +773,6 @@ export default function WordSearchGame() {
 
       {/* Sidebar */}
       <div className="flex flex-col gap-4 md:gap-6 w-full max-w-[95vw] lg:max-w-sm">
-
         <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-xl shadow-lg">
           {/* Score Display - Different for solo vs versus */}
           {gameMode === 'versus' ? (
@@ -757,61 +813,98 @@ export default function WordSearchGame() {
               <div className={`text-center text-xl font-mono font-bold mt-2 ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
                 Global Time: {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
               </div>
+              
+              {/* Level Info - Same as Solo Mode */}
+              <div className="text-sm text-cyan-400 font-bold mt-4 mb-2 uppercase tracking-wider text-center">
+                Level {level} • {gridSize.rows}x{gridSize.cols} Grid
+              </div>
+              <p className="text-slate-400 mb-4 text-center">Find the words listed below.</p>
+              <button
+                onClick={() => startNewGame(level)}
+                className="w-full py-3 px-6 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 font-bold shadow-[0_0_15px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-105"
+              >
+                Reset Level
+              </button>
             </div>
           ) : (
-            <div className="flex justify-between items-center mb-2">
-               <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-600">Score: {score}</h2>
-               <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
-                 {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-               </div>
-            </div>
-          )}
-
-
-
-        {/* Word List - Shows who found each word in versus mode */}
-        <div 
-          role="list"
-          aria-label={`Words to find. ${foundWords.length} of ${currentWords.length} found.`}
-          className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800"
-        >
-          {currentWords.map(word => {
-            const playerFound = foundWords.includes(word);
-            const cpuFound = cpuFoundWords.includes(word);
-            const isFound = playerFound || cpuFound;
-            
-            // Accessibility status
-            let status = 'not found yet';
-            if (playerFound) status = 'found by you';
-            else if (cpuFound) status = 'found by computer';
-            
-            return (
-              <div 
-                key={word} 
-                role="listitem"
-                aria-label={`${word}, ${status}`}
-                className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${
-                  playerFound 
-                    ? 'text-green-500/80 line-through decoration-green-500/50 decoration-2'
-                    : cpuFound
-                    ? 'text-red-500/60 line-through decoration-red-500/50 decoration-2'
-                    : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
-                }`}
+            /* Solo Mode - Original Layout */
+            <>
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">Score: {score}</h2>
+                <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
+                  {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                </div>
+              </div>
+              <div className="text-sm text-cyan-400 font-bold mb-4 uppercase tracking-wider">
+                Level {level} • {gridSize.rows}x{gridSize.cols} Grid
+              </div>
+              <p className="text-slate-400 mb-6">Find the words listed below.</p>
+              <button
+                onClick={() => startNewGame(level)}
+                className="w-full py-3 px-6 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 font-bold shadow-[0_0_15px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-105"
               >
-                <span 
-                  className={`w-4 md:w-6 text-center text-xs md:text-sm ${isFound ? 'opacity-100' : 'opacity-0'}`}
-                  aria-hidden="true"
+                Reset Level
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Word List */}
+        {gameMode === 'versus' ? (
+          /* Versus Mode - Shows who found each word */
+          <div 
+            role="list"
+            aria-label={`Words to find. ${foundWords.length} of ${currentWords.length} found.`}
+            className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800"
+          >
+            {currentWords.map(word => {
+              const playerFound = foundWords.includes(word);
+              const cpuFound = cpuFoundWords.includes(word);
+              const isFound = playerFound || cpuFound;
+              
+              return (
+                <div 
+                  key={word} 
+                  role="listitem"
+                  aria-label={`${word}, ${playerFound ? 'found by you' : cpuFound ? 'found by computer' : 'not found yet'}`}
+                  className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${
+                    playerFound 
+                      ? 'text-green-500/80 line-through decoration-green-500/50 decoration-2'
+                      : cpuFound
+                      ? 'text-red-500/60 line-through decoration-red-500/50 decoration-2'
+                      : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
+                  }`}
                 >
-                  {playerFound ? '✓' : cpuFound ? '✗' : ''}
+                  <span 
+                    className={`w-4 md:w-6 text-center text-xs md:text-sm ${isFound ? 'opacity-100' : 'opacity-0'}`}
+                    aria-hidden="true"
+                  >
+                    {playerFound ? '✓' : cpuFound ? '✗' : ''}
+                  </span>
+                  <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* Solo Mode - Original Word List */
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800">
+            {currentWords.map(word => (
+              <div
+                key={word}
+                className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${foundWords.includes(word)
+                  ? 'text-green-500/50 line-through decoration-green-500/50 decoration-2'
+                  : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
+                  }`}
+              >
+                <span className={`w-4 md:w-6 text-center text-xs md:text-sm ${foundWords.includes(word) ? 'opacity-100' : 'opacity-0'}`}>
+                  ✓
                 </span>
                 <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
               </div>
-            );
-          })}
-        </div>
-        </div>
-
-
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
