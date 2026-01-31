@@ -592,7 +592,7 @@ export default function WordSearchGame() {
                   setShowIntro(false);
                   sounds.resume();
                 }}
-                className="w-full py-4 bg-cyan-600 text-white text-lg font-bold rounded-xl hover:bg-cyan-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
+                className="w-full py-4 bg-cyan-600 text-white text-sm font-bold rounded-xl hover:bg-cyan-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
               >
                 Solo Mission
               </button>
@@ -603,7 +603,7 @@ export default function WordSearchGame() {
                   setShowIntro(false);
                   sounds.resume();
                 }}
-                className="w-full py-4 bg-red-600 text-white text-lg font-bold rounded-xl hover:bg-red-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
+                className="w-full py-4 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-500 transition-all duration-300 shadow-lg uppercase tracking-wider"
               >
                 Multiplayer VS CPU
               </button>
