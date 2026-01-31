@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { WordSearchGenerator, GridState, WordLocation, Point } from '@/lib/wordSearch';
+import { WordSearchGenerator, GridState, Point } from '@/lib/wordSearch';
 import { getRandomWords } from '@/lib/wordData';
 import { sounds } from '@/lib/sounds';
 import Spinner from './Spinner';
@@ -21,6 +21,14 @@ export default function WordSearchGame() {
   const [level, setLevel] = useState(1);
   const [timer, setTimer] = useState(0);
   const [gameOver, setGameOver] = useState(false);
+
+  // Accessibility: Keyboard navigation state
+  const [focusedCell, setFocusedCell] = useState<Point | null>(null);
+  const [isKeyboardSelecting, setIsKeyboardSelecting] = useState(false);
+  const [keyboardSelectionStart, setKeyboardSelectionStart] = useState<Point | null>(null);
+  
+  // Accessibility: Screen reader announcements
+  const [announcement, setAnnouncement] = useState<string>('');
 
   // Refs for calculating line positions
   const gridRef = useRef<HTMLDivElement>(null);
@@ -80,7 +88,12 @@ export default function WordSearchGame() {
   }, [timer, gameOver, showIntro, popup]);
 
   useEffect(() => {
-    startNewGame();
+    // Wrap in setTimeout to avoid "synchronous setState in effect" warning/error
+    // This pushes the state updates to the next tick
+    const timer = setTimeout(() => {
+      startNewGame();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [startNewGame]);
 
   const handleMouseDown = (row: number, col: number) => {
@@ -220,6 +233,150 @@ export default function WordSearchGame() {
     return { x1: `${x1}%`, y1: `${y1}%`, x2: `${x2}%`, y2: `${y2}%` };
   };
 
+
+  // Accessibility: Cancel keyboard selection
+  const cancelKeyboardSelection = useCallback(() => {
+    setIsKeyboardSelecting(false);
+    setKeyboardSelectionStart(null);
+    setSelectionStart(null);
+    setSelectionEnd(null);
+    setAnnouncement('Selection cancelled');
+  }, []);
+
+  // Accessibility: Complete keyboard selection and validate word
+  const completeKeyboardSelection = useCallback((endCell: Point) => {
+    if (!keyboardSelectionStart || !gameState) {
+      cancelKeyboardSelection();
+      return;
+    }
+
+    const selectedWord = getSelectedWord(gameState.grid, keyboardSelectionStart, endCell);
+    
+    if (selectedWord) {
+      const match = gameState.words.find(w => 
+        w.word === selectedWord && 
+        isSameLine(w.start, w.end, keyboardSelectionStart, endCell)
+      );
+
+      if (match) {
+        if (!foundWords.includes(match.word)) {
+          const newFoundWords = [...foundWords, match.word];
+          setFoundWords(newFoundWords);
+          const points = match.word.length;
+          setScore(score + points);
+          sounds.playSuccess();
+          
+          // Announce for screen readers
+          setAnnouncement(`Found ${match.word}, ${points} points`);
+          
+          if (newFoundWords.length === currentWords.length) {
+            setPopup({ word: "Level Complete!", points: 50, type: 'level_complete' });
+            sounds.playLevelComplete();
+            setGameOver(true);
+            setAnnouncement(`Level ${level} complete! All words found.`);
+          } else {
+            setPopup({ word: match.word, points, type: 'success' });
+            setTimeout(() => setPopup(null), 500);
+          }
+        } else {
+          setPopup({ word: "Already Found!", type: 'error' });
+          sounds.playError();
+          setAnnouncement('Word already found');
+          setTimeout(() => setPopup(null), 300);
+        }
+      } else {
+        setPopup({ word: "Wrong!", type: 'error' });
+        sounds.playError();
+        setAnnouncement('Wrong selection');
+        setTimeout(() => setPopup(null), 300);
+      }
+    } else {
+      setAnnouncement('Invalid selection path');
+    }
+
+    // Reset keyboard selection state
+    setIsKeyboardSelecting(false);
+    setKeyboardSelectionStart(null);
+    setSelectionStart(null);
+    setSelectionEnd(null);
+  }, [keyboardSelectionStart, gameState, foundWords, score, currentWords, level, cancelKeyboardSelection]);
+
+  // Accessibility: Check if a cell is in the current keyboard selection path
+  const isInKeyboardSelection = useCallback((row: number, col: number): boolean => {
+    if (!isKeyboardSelecting || !keyboardSelectionStart || !focusedCell) return false;
+    
+    const points = getPointsOnLine(keyboardSelectionStart, focusedCell);
+    if (!points) return false;
+    
+    return points.some(p => p.row === row && p.col === col);
+  }, [isKeyboardSelecting, keyboardSelectionStart, focusedCell]);
+
+  // Accessibility: Keyboard navigation handler
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (gameOver || showIntro) return;
+    
+    // Initialize focus if not set
+    const current = focusedCell || { row: 0, col: 0 };
+    
+    switch (e.key) {
+      case 'ArrowUp':
+        e.preventDefault();
+        const newRowUp = Math.max(0, current.row - 1);
+        setFocusedCell({ row: newRowUp, col: current.col });
+        if (isKeyboardSelecting) {
+          setSelectionEnd({ row: newRowUp, col: current.col });
+        }
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        const newRowDown = Math.min(gridSize.rows - 1, current.row + 1);
+        setFocusedCell({ row: newRowDown, col: current.col });
+        if (isKeyboardSelecting) {
+          setSelectionEnd({ row: newRowDown, col: current.col });
+        }
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        const newColLeft = Math.max(0, current.col - 1);
+        setFocusedCell({ row: current.row, col: newColLeft });
+        if (isKeyboardSelecting) {
+          setSelectionEnd({ row: current.row, col: newColLeft });
+        }
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        const newColRight = Math.min(gridSize.cols - 1, current.col + 1);
+        setFocusedCell({ row: current.row, col: newColRight });
+        if (isKeyboardSelecting) {
+          setSelectionEnd({ row: current.row, col: newColRight });
+        }
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        sounds.resume();
+        if (!isKeyboardSelecting) {
+          // Start selection
+          setIsKeyboardSelecting(true);
+          setKeyboardSelectionStart(current);
+          setSelectionStart(current);
+          setSelectionEnd(current);
+          sounds.playSelectStart();
+          setAnnouncement('Selection started. Use arrow keys to extend selection, then press Enter to confirm.');
+        } else {
+          // End selection and validate
+          completeKeyboardSelection(current);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        if (isKeyboardSelecting) {
+          cancelKeyboardSelection();
+        }
+        break;
+    }
+  }, [focusedCell, gridSize, gameOver, showIntro, isKeyboardSelecting, completeKeyboardSelection, cancelKeyboardSelection]);
+
   if (!gameState) return <Spinner />;
 
   return (
@@ -229,13 +386,23 @@ export default function WordSearchGame() {
       // Add touch end to container to catch releases outside grid
       onTouchEnd={handleTouchEnd}
     >
+      {/* Accessibility: Screen reader announcements */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </div>
+
       {/* Intro / How to Play Modal */}
       {showIntro && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-900 border-2 border-cyan-500 shadow-[0_0_50px_rgba(6,182,212,0.3)] p-6 md:p-8 rounded-2xl max-w-lg w-full text-center relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent"></div>
-
-            <h2 className="text-3xl md:text-4xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 uppercase tracking-widest drop-shadow-sm">
+            <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-transparent via-cyan-500 to-transparent"></div>
+            
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-6 text-transparent bg-clip-text bg-linear-to-r from-cyan-400 to-purple-500 uppercase tracking-widest drop-shadow-sm">
               How to Play
             </h2>
 
@@ -259,7 +426,7 @@ export default function WordSearchGame() {
                 setShowIntro(false);
                 sounds.resume();
               }}
-              className="w-full py-3 md:py-4 bg-gradient-to-r from-cyan-600 to-purple-600 text-white text-lg md:text-xl font-bold rounded-xl hover:from-cyan-500 hover:to-purple-500 transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-[1.02]"
+              className="w-full py-3 md:py-4 bg-linear-to-r from-cyan-600 to-purple-600 text-white text-lg md:text-xl font-bold rounded-xl hover:from-cyan-500 hover:to-purple-500 transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-[1.02]"
             >
               Start Mission
             </button>
@@ -268,31 +435,51 @@ export default function WordSearchGame() {
       )}
 
       {/* Game Board */}
-      <div
-        className="relative grid gap-0 border border-cyan-500/30 bg-black/40 backdrop-blur-md select-none shadow-[0_0_15px_rgba(6,182,212,0.15)] rounded-lg overflow-hidden touch-none mx-auto"
+      <div 
+        className="relative grid gap-0 border border-cyan-500/30 bg-black/40 backdrop-blur-md select-none shadow-[0_0_15px_rgba(6,182,212,0.15)] rounded-lg overflow-hidden touch-none mx-auto focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900"
         ref={gridRef}
+        role="grid"
+        aria-label={`Word search grid, ${gridSize.rows} rows by ${gridSize.cols} columns. Use arrow keys to navigate, Enter or Space to start and end selection.`}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         style={{
           gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
           width: 'min(95vw, 600px)',
           height: 'min(95vw, 600px)'
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
+
       >
         {gameState.grid.map((row, r) => (
-          row.map((letter, c) => (
-            <div
-              key={`${r}-${c}`}
-              data-row={r}
-              data-col={c}
-              className={`flex items-center justify-center font-sans font-bold cursor-pointer text-cyan-400/90 hover:bg-cyan-500/20 hover:text-cyan-100 transition-all duration-200 
-                ${gridSize.rows >= 15 ? 'text-sm md:text-lg' : 'text-lg md:text-xl'}`}
-              onMouseDown={() => handleMouseDown(r, c)}
-              onMouseEnter={() => handleMouseEnter(r, c)}
-            >
-              {letter}
-            </div>
-          ))
+          <div 
+            key={`row-${r}`}
+            role="row"
+            style={{ display: 'contents' }}
+          >
+            {row.map((letter, c) => {
+              const isFocused = focusedCell?.row === r && focusedCell?.col === c;
+              const isInSelection = isInKeyboardSelection(r, c);
+              return (
+                <div 
+                  key={`${r}-${c}`}
+                  role="gridcell"
+                  aria-label={`Letter ${letter}, row ${r + 1}, column ${c + 1}${isInSelection ? ', selected' : ''}`}
+                  aria-selected={isInSelection}
+                  data-row={r}
+                  data-col={c}
+                  className={`flex items-center justify-center font-sans font-bold cursor-pointer text-cyan-400/90 hover:bg-cyan-500/20 hover:text-cyan-100 transition-all duration-200 
+                    ${gridSize.rows >= 15 ? 'text-sm md:text-lg' : 'text-lg md:text-xl'}
+                    ${isFocused ? 'ring-2 ring-cyan-400 ring-inset bg-cyan-500/30 z-20' : ''}
+                    ${isInSelection ? 'bg-purple-500/20' : ''}`}
+                  onMouseDown={() => handleMouseDown(r, c)}
+                  onMouseEnter={() => handleMouseEnter(r, c)}
+                >
+                  {letter}
+                </div>
+              );
+            })}
+          </div>
         ))}
 
         {/* SVG Overlay for Lines */}
@@ -381,41 +568,55 @@ export default function WordSearchGame() {
 
       {/* Sidebar */}
       <div className="flex flex-col gap-4 md:gap-6 w-full max-w-[95vw] lg:max-w-sm">
-        <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-xl shadow-lg">
+        <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-xl shadow-lg">
           <div className="flex justify-between items-center mb-2">
-            <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">Score: {score}</h2>
-            <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
-              {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-            </div>
+             <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-600">Score: {score}</h2>
+             <div className={`text-2xl font-mono font-bold ${timer <= 10 ? 'text-red-400 animate-pulse' : 'text-cyan-400'}`}>
+               {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+             </div>
           </div>
           <div className="text-sm text-cyan-400 font-bold mb-4 uppercase tracking-wider">
             Level {level} • {gridSize.rows}x{gridSize.cols} Grid
           </div>
-          <p className="text-slate-400 mb-6">Find the words listed below.</p>
+          <p className="text-slate-300 mb-6">Find the words listed below.</p>
           <button
             onClick={() => startNewGame(level)}
-            className="w-full py-3 px-6 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 font-bold shadow-[0_0_15px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-105"
+            className="w-full py-3 px-6 bg-linear-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 font-bold shadow-[0_0_15px_rgba(8,145,178,0.4)] uppercase tracking-wider transform hover:scale-105"
           >
             Reset Level
           </button>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800">
-          {currentWords.map(word => (
-            <div
-              key={word}
-              className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${foundWords.includes(word)
-                ? 'text-green-500/50 line-through decoration-green-500/50 decoration-2'
-                : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
+        <div 
+          role="list"
+          aria-label={`Words to find. ${foundWords.length} of ${currentWords.length} found.`}
+          className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-1 gap-2 md:gap-3 p-3 md:p-4 bg-slate-900/30 rounded-xl border border-slate-800"
+        >
+          {currentWords.map(word => {
+            const isFound = foundWords.includes(word);
+            return (
+              <div 
+                key={word}
+                role="listitem"
+                aria-label={`${word}${isFound ? ', found' : ', not found yet'}`}
+                className={`flex items-center gap-2 md:gap-3 transition-all duration-300 ${
+                  isFound 
+                    ? 'text-green-500/50 line-through decoration-green-500/50 decoration-2' 
+                    : 'text-slate-300 hover:text-cyan-300 hover:translate-x-1'
                 }`}
-            >
-              <span className={`w-4 md:w-6 text-center text-xs md:text-sm ${foundWords.includes(word) ? 'opacity-100' : 'opacity-0'}`}>
-                ✓
-              </span>
-              <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
-            </div>
-          ))}
+              >
+                <span 
+                  className={`w-4 md:w-6 text-center text-xs md:text-sm ${isFound ? 'opacity-100' : 'opacity-0'}`}
+                  aria-hidden="true"
+                >
+                  ✓
+                </span>
+                <span className="font-mono tracking-wide text-xs md:text-base">{word}</span>
+              </div>
+            );
+          })}
         </div>
+
       </div>
     </div>
   );
