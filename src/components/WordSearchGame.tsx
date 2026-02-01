@@ -544,7 +544,7 @@ export default function WordSearchGame() {
 
   return (
     <div
-      className="flex flex-col-reverse lg:flex-row gap-6 md:gap-8 p-0 md:p-4 max-w-7xl mx-auto items-center lg:items-start"
+      className="flex flex-col-reverse lg:flex-row gap-6 md:gap-8 max-w-7xl mx-auto items-center lg:items-start lg:pt-32 lg:p-4"
       onMouseUp={handleMouseUp}
       // Add touch end to container to catch releases outside grid
       onTouchEnd={handleTouchEnd}
@@ -614,7 +614,7 @@ export default function WordSearchGame() {
 
       {/* Game Board */}
       <div 
-        className={`relative grid gap-0 border bg-black/40 backdrop-blur-md select-none rounded-lg overflow-hidden touch-none mx-auto focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all duration-500
+        className={`lg:sticky top-40 grid gap-0 border bg-black/40 backdrop-blur-md select-none rounded-lg overflow-hidden touch-none mx-auto focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all duration-500
           ${(gameMode === 'versus' && currentTurn === 'cpu' && !gameOver) 
             ? 'border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.5)] ring-2 ring-red-500 animate-pulse pointer-events-none' 
             : 'border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
